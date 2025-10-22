@@ -143,9 +143,13 @@ def main():
             "2. Extract tRNA sequences from a genome and remove introns.\n"
             "3. Add CCA tails and 5' nucleotide extensions.\n"
             "4. Generate k-mers from tRNA sequences.\n\n"
+            "5. Generate a genome search space for mapping.\n\n"
             "Example usage:\n"
             "  python trna_pipeline.py filter input.txt --output filtered.txt\n"
-            "  python trna_pipeline.py extract filtered.txt genome.fa --output tRNA_spliced.fa"
+            "  python trna_pipeline.py extract filtered.txt genome.fa --output tRNA_spliced.fa\n"
+            "  python trna_pipeline.py modification-trna tRNA_spliced.fa --output tRNA_all_mature.fa\n"
+            "  python trna_pipeline.py generate-kmers tRNA_all_mature.fa --prefix trf_lookup --min 16 --max 50\n"
+            "  python trna_pipeline.py genome-search-space genome.fa --output genome_search_space.txt --num-autosomes 19"
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
