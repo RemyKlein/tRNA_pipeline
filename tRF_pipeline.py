@@ -142,7 +142,7 @@ def main():
             "1. Filter tRNAscan-SE output.\n"
             "2. Extract tRNA sequences from a genome and remove introns.\n"
             "3. Add CCA tails and 5' nucleotide extensions.\n"
-            "4. Generate k-mers from tRNA sequences.\n\n"
+            "4. Generate k-mers from tRNA sequences.\n"
             "5. Generate a genome search space for mapping.\n\n"
             "Example usage:\n"
             "  python trna_pipeline.py filter input.txt --output filtered.txt\n"
@@ -250,7 +250,7 @@ def main():
         "input", type=str, help="FASTA file of the genome."
     )
     parser_search_space.add_argument(
-        "--output", default="genome_search_space.txt",
+        "--output", type=str, default="genome_search_space.txt",
         help="Path to save the search space file. Default: genome_search_space.txt"
     )
     parser_search_space.add_argument(
@@ -258,7 +258,7 @@ def main():
         help="Number of autosomes for the species. X, Y, and MT chromosomes are added automatically. Default: 19 (mouse)"
     )
     parser_search_space.set_defaults(func=lambda args: genome_search_space(
-        infile=args.input, outfile=args.outfile, num_autosomes=args.num_autosomes
+        infile=args.input, outfile=args.output, num_autosomes=args.num_autosomes
     ))
 
     args = parser.parse_args()
