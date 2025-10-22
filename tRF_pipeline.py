@@ -134,6 +134,71 @@ def genome_search_space(infile, outfile, num_autosomes):
     print(f"Expected lines: {len(main_chrom) * 2}, actual lines: {line_counts}")
     return outfile
 
+def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna_spliced_file):
+    chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
+    mask = {}
+
+    with open(genome_search_space_file, "r") as infile:
+        for index, line in enumerate(infile, start=0):
+            strand = "+" if index % 2 == 0 else "-"
+            chrom = chrom_order[index // 2]
+            if chrom not in mask:
+                mask[chrom] = {}
+            mask[chrom][strand] = [0] * len(line.strip())
+
+    # Check the presence of CCA before modification
+    tRNA_has_CCA = {}
+    for record in SeqIO.parse(trna_spliced_file, "fasta"):
+        header = record.id
+        sequence = str(record.seq)
+        chrom_part = header.split("_")[-1]
+        chrom, coords = chrom_part.split(":")
+        start, end = coords.split("-")
+        key = (chrom, int(start), int(end))
+        tRNA_has_CCA[key] = sequence.endswith("CCA")
+
+
+    with open(trna_scan_filtered_file, "r") as infile:
+        
+        for line in infile:
+            line = line.strip()
+            parts = line.split()
+            chrom, start_position, end_position = parts[0], int(parts[2]), int(parts[3])
+
+            # Positive strand
+            if start_position < end_position:
+                strand = "+"
+            # Negative strand
+            else:
+                strand = "-"
+                start_position, end_position = end_position, start_position
+
+            mask[chrom][strand][start_position - 1:end_position] = [1] * (end_position - start_position + 1)
+
+            key = (chrom, start_position, end_position)
+            has_cca = tRNA_has_CCA.get(key, True)
+
+            if not has_cca:
+                for pos in range(end_position, end_position + 3):
+                    if pos < len(mask[chrom][strand]):
+                        mask[chrom][strand][pos] = 2
+
+            minus1_pos = start_position - 2
+            if minus1_pos >= 0:
+                mask[chrom][strand][minus1_pos] = 2
+        
+    mask_dir = "exonic_masks"
+    os.makedirs(mask_dir, exist_ok=True)
+
+    for chrom in mask:
+        for strand in mask[chrom]:
+            filename = f"chr{chrom}_{'plus' if strand == '+' else 'minus'}.mask"
+            outpath = os.path.join(mask_dir, filename)
+            with open(outpath, "w") as f:
+                f.write("".join(map(str, mask[chrom][strand])) + "\n")
+
+    print(f"Exonic masks generated in folder: {mask_dir}")
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -143,13 +208,18 @@ def main():
             "2. Extract tRNA sequences from a genome and remove introns.\n"
             "3. Add CCA tails and 5' nucleotide extensions.\n"
             "4. Generate k-mers from tRNA sequences.\n"
-            "5. Generate a genome search space for mapping.\n\n"
+            "5. Generate a genome search space for mapping.\n"
+            "6. Generate exonic masks for each chromosome and strand.\n\n"
             "Example usage:\n"
             "  python trna_pipeline.py filter input.txt --output filtered.txt\n"
             "  python trna_pipeline.py extract filtered.txt genome.fa --output tRNA_spliced.fa\n"
             "  python trna_pipeline.py modification-trna tRNA_spliced.fa --output tRNA_all_mature.fa\n"
             "  python trna_pipeline.py generate-kmers tRNA_all_mature.fa --prefix trf_lookup --min 16 --max 50\n"
-            "  python trna_pipeline.py genome-search-space genome.fa --output genome_search_space.txt --num-autosomes 19"
+            "  python trna_pipeline.py genome-search-space genome.fa --output genome_search_space.txt --num-autosomes 19\n\n"
+            "Note:\n"
+            "  - The genome FASTA must be from Ensembl to ensure chromosome naming consistency.\n"
+            "  - The exonic mask step uses a fixed output folder: 'exonic_masks/'.\n"
+            "  - The pipeline handles + and - strands and inserts CCA/5' extensions as needed."
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
@@ -259,6 +329,32 @@ def main():
     )
     parser_search_space.set_defaults(func=lambda args: genome_search_space(
         infile=args.input, outfile=args.output, num_autosomes=args.num_autosomes
+    ))
+
+    parser_mask = subparser.add_parser(
+        "exonic-mask",
+        help=(
+            "Generate exonic mask files for each chromosome and strand.\n"
+            "Requires genome search space, filtered tRNAscan output, and spliced tRNA sequences.\n"
+            "Output files are always written to a folder named 'exonic_masks/'."
+        )
+    )
+    parser_mask.add_argument(
+        "genome-search-space", type=str, 
+        help="Genome search space file."
+    )
+    parser_mask.add_argument(
+        "trnascan-filtered", type=str, 
+        help="Filtered tRNAscan-SE output file."
+    )
+    parser_mask.add_argument(
+        "trna-spliced", type=str, 
+        help="Spliced tRNA FASTA file."
+    )
+    parser_mask.set_defaults(func=lambda args: generate_exonic_mask(
+        genome_search_space_file=args.genome_search_space,
+        trna_scan_filtered_file=args.trnascan_filtered,
+        trna_spliced_file=args.trna_spliced,
     ))
 
     args = parser.parse_args()
