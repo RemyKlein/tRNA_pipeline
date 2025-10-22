@@ -329,7 +329,7 @@ def main():
         help="Number of autosomes for the species. X, Y, and MT chromosomes are added automatically. Default: 19 (mouse)"
     )
     parser_search_space.set_defaults(func=lambda args: genome_search_space(
-        infile=args.input, outfile=args.output, num_autosomes=args.num_autosomes
+        infile=args.input, outfile=args.output, num_autosomes=getattr(args, "num-autosomes")
     ))
 
     parser_mask = subparser.add_parser(
@@ -353,9 +353,9 @@ def main():
         help="Spliced tRNA FASTA file."
     )
     parser_mask.set_defaults(func=lambda args: generate_exonic_mask(
-        genome_search_space_file=args.genome_search_space,
-        trna_scan_filtered_file=args.trnascan_filtered,
-        trna_spliced_file=args.trna_spliced,
+        genome_search_space_file=getattr(args, "genome-search-space"),
+        trna_scan_filtered_file=getattr(args, "trnascan-filtered"),
+        trna_spliced_file=getattr(args, "trna-spliced"),
     ))
 
     args = parser.parse_args()
