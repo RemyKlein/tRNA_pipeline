@@ -6,14 +6,18 @@ from Bio.SeqRecord import SeqRecord
 from collections import defaultdict
 
 def filter_trnascan_output(infile, outfile):
+    canonical_chroms = [str(i) for i in range(1, 20)] + ["X", "Y", "MT"]
+
     with open(infile, "r") as file, open(outfile, "w") as out_file:
         for line in file:
             if line.startswith("Sequence") or line.startswith("Name") or line.startswith("-"):
                 continue
+
             parts = line.split()
+            chrom = parts[0]
             anti_codon = parts[5]
 
-            if anti_codon != "NNN":
+            if chrom in canonical_chroms and anti_codon != "NNN":
                 out_file.write(line)
     
     print(f"File tRNAscan-SE filtered : {outfile}")
