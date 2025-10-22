@@ -118,6 +118,22 @@ def generate_kmers(infile, outfile, min_length=16, max_length=50):
     print(f"{len(seq_to_origins)} k-mers generated.")
     return output_fasta, output_tsv
 
+def genome_search_space(infile, outfile, num_autosomes):
+    main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
+
+    line_counts = 0
+    with open(outfile, "w") as out_file:
+        for record in SeqIO.parse(infile, "fasta"):
+            if record.id in main_chrom:
+                sequence = str(record.seq)
+                sequence_reverse_complement = str(Seq(sequence).reverse_complement())
+                out_file.write(f"{sequence}\n{sequence_reverse_complement}\n")
+                line_counts += 2
+
+    print(f"File generated: {outfile}")
+    print(f"Expected lines: {len(main_chrom) * 2}, actual lines: {line_counts}")
+    return outfile
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -175,7 +191,7 @@ def main():
     ))
 
     parser_mod = subparser.add_parser(
-        "modification_trna",
+        "modification-trna",
         help=(
             "Add CCA tail to the 3' end of tRNAs that lack it.\n"
             "Additionally, create 4 extra copies for each sequence with an added 5' nucleotide (A,T,C,G)."
@@ -193,7 +209,7 @@ def main():
     ))
 
     parser_kmers = subparser.add_parser(
-        "generate_kmers",
+        "generate-kmers",
         help=(
             "Generate all k-mers from tRNA sequences within a specified size range.\n"
             "Outputs both a FASTA file of k-mers and a TSV lookup table."
@@ -216,6 +232,29 @@ def main():
     )
     parser_kmers.set_defaults(func=lambda args: generate_kmers(
         infile=args.input, outfile=args.prefix, min_length=args.min, max_length=args.max
+    ))
+
+    parser_search_space = subparser.add_parser(
+        "genome-search-space", 
+        help=("Generate a search space for tRNA mapping by writing each chromosome twice:\n"
+        "- Forward strand (5'->3')\n"
+        "- Reverse complement (5'->3')\n"
+        "Only the main chromosomes (1-19, X, Y, MT) are included."
+        )
+    )
+    parser_search_space.add_argument(
+        "input", type=str, help="FASTA file of the genome."
+    )
+    parser_search_space.add_argument(
+        "--output", default="genome_search_space.txt",
+        help="Path to save the search space file. Default: genome_search_space.txt"
+    )
+    parser_search_space.add_argument(
+        "--num-autosomes", type=int, default=19,
+        help="Number of autosomes for the species. X, Y, and MT chromosomes are added automatically. Default: 19 (mouse)"
+    )
+    parser_search_space.set_defaults(func=lambda args: genome_search_space(
+        infile=args.input, outfile=args.outfile, num_autosomes=args.num_autosomes
     ))
 
     args = parser.parse_args()
