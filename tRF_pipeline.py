@@ -143,6 +143,7 @@ def generate_kmers(trna_all_mature, outfile, min_length=16, max_length=50):
 
 def genome_search_space(genome_file, outfile, num_autosomes):
     main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
+    genome = {}
 
     line_counts = 0
     with open(outfile, "w") as out_file:
@@ -151,11 +152,15 @@ def genome_search_space(genome_file, outfile, num_autosomes):
                 sequence = str(record.seq)
                 sequence_reverse_complement = str(Seq(sequence).reverse_complement())
                 out_file.write(f"{sequence}\n{sequence_reverse_complement}\n")
+                genome[record.id] = {
+                    "+":sequence,
+                    "-": sequence_reverse_complement
+                }
                 line_counts += 2
 
     print(f"File generated: {outfile}")
     print(f"Expected lines: {len(main_chrom) * 2}, actual lines: {line_counts}")
-    return outfile
+    return outfile, genome
 
 def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna_spliced_file):
     chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
