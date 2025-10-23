@@ -271,7 +271,7 @@ def main():
 
     parser_filter = subparser.add_parser(
         "filter",
-        help="Filter tRNAscan-SE output to remove sequences with undetermined anticodons (NNN)."
+        help="Filter tRNAscan-SE output to remove sequences with undetermined anticodons (NNN) and non-canonical chromosomes/contigs."
     )
     parser_filter.add_argument(
         "input", type=str, 
