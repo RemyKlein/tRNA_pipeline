@@ -1,14 +1,33 @@
 import os
 import argparse
+import subprocess
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from collections import defaultdict
 
-def filter_trnascan_output(infile, outfile):
+def run_trnascan(genome_file):
+    genome_file = os.path.abspath(genome_file)
+    output_file = "trnascan_out.txt"
+
+    cmd = [
+        "tRNAscan-SE",
+        "-o", output_file,
+        genome_file
+    ]
+    
+    print(f"Running tRNAscan-SE on {genome_file}...")
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"tRNAscan-SE finished successfully!\n")
+        print(f"Outputs written to:\n {output_file}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error while running tRNAscan-SE: {e}")
+
+def filter_trnascan_output(trnascan_out, trnascan_out_filtered):
     canonical_chroms = [str(i) for i in range(1, 20)] + ["X", "Y", "MT"]
 
-    with open(infile, "r") as file, open(outfile, "w") as out_file:
+    with open(trnascan_out, "r") as file, open(trnascan_out_filtered, "w") as out_file:
         for line in file:
             if line.startswith("Sequence") or line.startswith("Name") or line.startswith("-"):
                 continue
@@ -20,13 +39,13 @@ def filter_trnascan_output(infile, outfile):
             if chrom in canonical_chroms and anti_codon != "NNN":
                 out_file.write(line)
     
-    print(f"File tRNAscan-SE filtered : {outfile}")
-    return outfile
+    print(f"File tRNAscan-SE filtered : {trnascan_out_filtered}")
+    return trnascan_out_filtered
 
-def extract_trna_sequences(infile, outfile, genome_file):
+def extract_trna_sequences(trnascan_out_filtered, trna_spliced, genome_file):
     genome = SeqIO.to_dict(SeqIO.parse(genome_file, "fasta"))
 
-    with open(infile, "r") as file, open(outfile, "w") as out_file:
+    with open(trnascan_out_filtered, "r") as file, open(trna_spliced, "w") as out_file:
 
         for line in file:
             if not line.strip() or line.startswith("#"):
@@ -65,14 +84,14 @@ def extract_trna_sequences(infile, outfile, genome_file):
             tRNA_name = f">tRNA_{parts[4]}_{parts[5]}_{chrom}:{start_genomic_pos}-{end_genomic_pos}"
             out_file.write(f"{tRNA_name}\n{spliced_seq}\n")
 
-    print(f"tRNA sequence extracted and possible introns removed: {outfile}")
-    return outfile
+    print(f"tRNA sequence extracted and possible introns removed: {trna_spliced}")
+    return trna_spliced
 
-def add_cca_and_n1(infile, outfile):
+def add_cca_and_n1(trna_spliced, trna_all_mature):
     out_cca = "tRNA_CCA.fa"
     
     # Add CCA
-    with open(infile, "r") as file, open(out_cca, "w") as outfile:
+    with open(trna_spliced, "r") as file, open(out_cca, "w") as outfile:
         for record in SeqIO.parse(file, "fasta"):
             sequence = str(record.seq)
             if not sequence.endswith("CCA"):
@@ -83,7 +102,7 @@ def add_cca_and_n1(infile, outfile):
     # Add N pos n -1
     base = ["A", "T", "C", "G"]
     records_out = []
-    with open(out_cca, "r") as file, open(outfile, "w") as out_file:
+    with open(out_cca, "r") as file, open(trna_all_mature, "w") as out_file:
         for record in SeqIO.parse(file, "fasta"):
             sequence = str(record.seq)
             records_out.append(record)
@@ -94,15 +113,15 @@ def add_cca_and_n1(infile, outfile):
                 records_out.append(new_record)
         SeqIO.write(records_out, out_file, "fasta")
     
-    print(f"tRNA file modified: {outfile}")
-    return outfile
+    print(f"tRNA file modified: {trna_all_mature}")
+    return trna_all_mature
 
-def generate_kmers(infile, outfile, min_length=16, max_length=50):
+def generate_kmers(trna_all_mature, outfile, min_length=16, max_length=50):
     seq_to_origins = defaultdict(set)
     output_fasta = f"{outfile}_{min_length}_{max_length}.fa"
     output_tsv = f"{outfile}_{min_length}_{max_length}.tsv"
 
-    for record in SeqIO.parse(infile, "fasta"):
+    for record in SeqIO.parse(trna_all_mature, "fasta"):
         sequence = str(record.seq)
         tRNA_id = record.id
         L = len(sequence)
@@ -122,12 +141,12 @@ def generate_kmers(infile, outfile, min_length=16, max_length=50):
     print(f"{len(seq_to_origins)} k-mers generated.")
     return output_fasta, output_tsv
 
-def genome_search_space(infile, outfile, num_autosomes):
+def genome_search_space(genome_file, outfile, num_autosomes):
     main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
 
     line_counts = 0
     with open(outfile, "w") as out_file:
-        for record in SeqIO.parse(infile, "fasta"):
+        for record in SeqIO.parse(genome_file, "fasta"):
             if record.id in main_chrom:
                 sequence = str(record.seq)
                 sequence_reverse_complement = str(Seq(sequence).reverse_complement())
@@ -177,6 +196,9 @@ def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna
                 strand = "-"
                 start_position, end_position = end_position, start_position
 
+            end_position = min(end_position, len(mask[chrom][strand]))
+            start_position = max(1, start_position)
+
             mask[chrom][strand][start_position - 1:end_position] = [1] * (end_position - start_position + 1)
 
             key = (chrom, start_position, end_position)
@@ -208,13 +230,15 @@ def main():
         description=(
             "tRNA Processing Pipeline\n\n"
             "This pipeline provides multiple steps to process tRNA sequences:\n"
-            "1. Filter tRNAscan-SE output.\n"
-            "2. Extract tRNA sequences from a genome and remove introns.\n"
-            "3. Add CCA tails and 5' nucleotide extensions.\n"
-            "4. Generate k-mers from tRNA sequences.\n"
-            "5. Generate a genome search space for mapping.\n"
-            "6. Generate exonic masks for each chromosome and strand.\n\n"
+            "1. Run tRNAscan-SE on a genome.\n"
+            "2. Filter tRNAscan-SE output.\n"
+            "3. Extract tRNA sequences from a genome and remove introns.\n"
+            "4. Add CCA tails and 5' nucleotide extensions.\n"
+            "5. Generate k-mers from tRNA sequences.\n"
+            "6. Generate a genome search space for mapping.\n"
+            "7. Generate exonic masks for each chromosome and strand.\n\n"
             "Example usage:\n"
+            "  python tRF_pipeline.py run-scan genome.fa --outdir results\n"
             "  python tRF_pipeline.py filter input.txt --output filtered.txt\n"
             "  python tRF_pipeline.py extract filtered.txt genome.fa --output tRNA_spliced.fa\n"
             "  python tRF_pipeline.py modification-trna tRNA_spliced.fa --output tRNA_all_mature.fa\n"
@@ -223,6 +247,7 @@ def main():
             "  python tRF_pipeline.py exonic-mask genome_search_space.txt trnascan_filtered.txt tRNA_spliced.fa\n\n"
             "Note:\n"
             "  - The genome FASTA must be from Ensembl to ensure chromosome naming consistency.\n"
+            "  - The genome file must be decompressed before running tRNAscan-SE (e.g., use 'gunzip your_file.fa.gz').\n"
             "  - The exonic mask step uses a fixed output folder: 'exonic_masks/'.\n"
             "  - The pipeline handles + and - strands and inserts CCA/5' extensions as needed."
         ),
@@ -231,6 +256,18 @@ def main():
 
     subparser = parser.add_subparsers(dest="cmd", required=True, title="Subcommands",
                                       description="Available pipeline steps:")
+
+    parser_run = subparser.add_parser(
+        "run-scan",
+        help="Run tRNAscan-SE on a genome FASTA file. "
+    )
+    parser_run.add_argument(
+        "genome", type=str, 
+        help="Genome FASTA file to scan."
+    )
+    parser_run.set_defaults(func=lambda args: run_trnascan(
+        genome_file=args.genome
+    ))
 
     parser_filter = subparser.add_parser(
         "filter",
@@ -245,7 +282,7 @@ def main():
         help="Path to save the filtered output. Default: trnascan_out_filtered.txt"
     )
     parser_filter.set_defaults(func=lambda args: filter_trnascan_output(
-        infile=args.input, outfile=args.output
+        trnascan_out=args.input, trnascan_out_filtered=args.output
     ))
 
     parser_extract = subparser.add_parser(
@@ -266,7 +303,7 @@ def main():
         help="Output FASTA file with spliced tRNA sequences. Default: tRNA_spliced.fa"
     )
     parser_extract.set_defaults(func=lambda args: extract_trna_sequences(
-        infile=args.input, genome_file=args.genome_file, outfile=args.output
+        trnascan_out_filtered=args.input, genome_file=args.genome_file, trna_spliced=args.output
     ))
 
     parser_mod = subparser.add_parser(
@@ -284,7 +321,7 @@ def main():
         help="Output FASTA file with CCA added and 5' nucleotide extensions. Default: tRNA_all_mature.fa"
     )
     parser_mod.set_defaults(func=lambda args: add_cca_and_n1(
-        infile=args.input, outfile=args.output
+        trna_spliced=args.input, trna_all_mature=args.output
     ))
 
     parser_kmers = subparser.add_parser(
@@ -310,7 +347,7 @@ def main():
         help="Maximum k-mer length. Default: 50"
     )
     parser_kmers.set_defaults(func=lambda args: generate_kmers(
-        infile=args.input, outfile=args.prefix, min_length=args.min, max_length=args.max
+        trna_all_mature=args.input, outfile=args.prefix, min_length=args.min, max_length=args.max
     ))
 
     parser_search_space = subparser.add_parser(
@@ -333,7 +370,7 @@ def main():
         help="Number of autosomes for the species. X, Y, and MT chromosomes are added automatically. Default: 19 (mouse)"
     )
     parser_search_space.set_defaults(func=lambda args: genome_search_space(
-        infile=args.input, outfile=args.output, num_autosomes=getattr(args, "num-autosomes")
+        genome_file=args.input, outfile=args.output, num_autosomes=args.num_autosomes
     ))
 
     parser_mask = subparser.add_parser(
