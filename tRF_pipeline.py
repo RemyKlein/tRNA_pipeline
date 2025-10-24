@@ -1,6 +1,7 @@
 import os
 import argparse
 import subprocess
+import re
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -229,6 +230,51 @@ def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna
                 f.write("".join(map(str, mask[chrom][strand])) + "\n")
 
     print(f"Exonic masks generated in folder: {mask_dir}")
+
+def trf_lookup_split(trf_lookup_16_50):
+    os.makedirs("trf_lookup_blocks", exist_ok=True)
+    block_index = 0
+    line_count = 0
+
+    with open(trf_lookup_16_50, "r") as infile:
+        for line in infile:
+            
+
+def check_exclusivity(trf_lookup_16_50, exonic_mask, genome):
+    trf_candidate = []
+
+    # Reading tsv file containing candidate fragment
+    with open(trf_lookup_16_50, "r") as tsv_file:
+        for line in tsv_file:
+            line = line.strip().split("\t")
+            trf_id, seq, length, origins = line[0], line[1], int(line[2]), line[3] 
+            trf_candidate.append({
+                "id": trf_id,
+                "sequence": seq,
+                "length": length,
+                "origins": origins.split(";")
+            })
+    
+    for trf in trf_candidate:
+        seq_trf = trf["sequence"]
+
+        for chrom in genome:
+            for strand in ["+", "-"]:
+                seq_genome = str(genome[chrom][strand])
+                
+                start = 0
+                while True:
+                    index = seq_genome.find(seq_trf, start)
+                    if index == -1:
+                        break
+                    
+                    mask_slice = exonic_mask[chrom][strand][index:index + len(seq_trf)]
+                    if 0 in mask_slice:
+                        break
+                    start = index + 1
+
+
+
 
 def main():
     parser = argparse.ArgumentParser(
