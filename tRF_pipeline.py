@@ -133,7 +133,7 @@ def generate_kmers(trna_all_mature, outfile, min_length=16, max_length=50):
     with open(output_fasta, "w") as f_out, open(output_tsv, "w") as tsv_out:
         tsv_out.write("tRF_id\tsequence\tlength\torigins\n")
         for idx, (kmer, origins) in enumerate(seq_to_origins.items(), start=1):
-            trf_id = f"tRF_{idx:07d}_len{len(kmer)}"
+            trf_id = f"tRF_{idx:07d}"
             origins_str = ";".join(sorted(origins))
             f_out.write(f">{trf_id} {origins_str}\n{kmer}\n")
             tsv_out.write(f"{trf_id}\t{kmer}\t{len(kmer)}\t{origins_str}\n")
