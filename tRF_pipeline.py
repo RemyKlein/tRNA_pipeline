@@ -144,7 +144,6 @@ def generate_kmers(trna_all_mature, outfile, min_length=16, max_length=50):
 
 def genome_search_space(genome_file, outfile, num_autosomes):
     main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
-    genome = {}
 
     line_counts = 0
     with open(outfile, "w") as out_file:
@@ -153,15 +152,11 @@ def genome_search_space(genome_file, outfile, num_autosomes):
                 sequence = str(record.seq)
                 sequence_reverse_complement = str(Seq(sequence).reverse_complement())
                 out_file.write(f"{sequence}\n{sequence_reverse_complement}\n")
-                genome[record.id] = {
-                    "+":sequence,
-                    "-": sequence_reverse_complement
-                }
                 line_counts += 2
 
     print(f"File generated: {outfile}")
     print(f"Expected lines: {len(main_chrom) * 2}, actual lines: {line_counts}")
-    return outfile, genome
+    return outfile
 
 def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna_spliced_file):
     chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
@@ -230,51 +225,100 @@ def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna
                 f.write("".join(map(str, mask[chrom][strand])) + "\n")
 
     print(f"Exonic masks generated in folder: {mask_dir}")
+    return mask
 
-def trf_lookup_split(trf_lookup_16_50):
-    os.makedirs("trf_lookup_blocks", exist_ok=True)
-    block_index = 0
+def trf_lookup_split(trf_lookup_16_50, lines_per_block, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    block_index = 1
     line_count = 0
+    block_file = None
 
     with open(trf_lookup_16_50, "r") as infile:
+        header = next(infile)
         for line in infile:
-            
+            if line_count % lines_per_block == 0:
+                if block_file:
+                    block_file.close()
+                block_filename = os.path.join(output_dir, f"block_{block_index:04d}.tsv")
+                block_file = open(block_filename, "w")
+                block_file.write(header)
+                block_index += 1
+            block_file.write(line)
+            line_count += 1
+        if block_file:
+            block_file.close()
+    print(f"Split complete: {line_count} lines divided into {block_index - 1} blocks in '{output_dir}'")
+    return output_dir
 
-def check_exclusivity(trf_lookup_16_50, exonic_mask, genome):
-    trf_candidate = []
+def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_file):
+    # Loading genome 
+    genome = {}
+    main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
 
-    # Reading tsv file containing candidate fragment
-    with open(trf_lookup_16_50, "r") as tsv_file:
-        for line in tsv_file:
-            line = line.strip().split("\t")
-            trf_id, seq, length, origins = line[0], line[1], int(line[2]), line[3] 
-            trf_candidate.append({
-                "id": trf_id,
-                "sequence": seq,
-                "length": length,
-                "origins": origins.split(";")
-            })
-    
-    for trf in trf_candidate:
-        seq_trf = trf["sequence"]
+    print("Loading genome...")
+    for record in SeqIO.parse(genome_file, "fasta"):
+        if record.id in main_chrom:
+            sequence = str(record.seq)
+            sequence_reverse_complement = str(Seq(sequence).reverse_complement())
+            genome[record.id] = {
+                "+":sequence,
+                "-":sequence_reverse_complement
+            }
 
-        for chrom in genome:
-            for strand in ["+", "-"]:
-                seq_genome = str(genome[chrom][strand])
-                
-                start = 0
-                while True:
-                    index = seq_genome.find(seq_trf, start)
-                    if index == -1:
-                        break
-                    
-                    mask_slice = exonic_mask[chrom][strand][index:index + len(seq_trf)]
-                    if 0 in mask_slice:
-                        break
-                    start = index + 1
+    # Load masks
+    mask = {}
+    print("Loading exonic masks...")
+    for fname in os.listdir(mask_dir):
+        if fname.endswith(".mask"):
+            chrom = fname.split("_")[0].replace("chr","")
+            strand = "+" if "plus" in fname else "-"
+            with open(os.path.join(mask_dir, fname), "r") as f:
+                mask_seq = [int(c) for c in f.read().strip()]
+            if chrom not in mask:
+                mask[chrom] = {}
+            mask[chrom][strand] = mask_seq
 
+    print("Checking tRF exclusivity...")
+    with open(output_file, "w") as out_f:
+        out_f.write("tRF_id\tsequence\tlength\torigins\texclusivity\n")
 
+        for block_file in sorted(os.listdir(block_dir)):
+            if not block_file.endswith(".tsv"):
+                continue
+            block_path = os.path.join(block_dir, block_file)
+            with open(block_path) as f:
+                header = next(f)
+                for line in f:
+                    trf_id, seq, length, origins = line.strip().split("\t")
+                    length = int(length)
+                    hit_values = set()  # Contient les valeurs du mask rencontrées
 
+                    # Parcourir tout le génome pour trouver les positions de ce tRF
+                    for chrom in genome:
+                        for strand in ["+", "-"]:
+                            seq_genome = genome[chrom][strand]
+                            start = 0
+                            while True:
+                                index = seq_genome.find(seq, start)
+                                if index == -1:
+                                    break
+                                mask_slice = mask[chrom][strand][index:index+length]
+                                hit_values.update(mask_slice)
+                                start = index + 1
+
+                    # Déterminer la catégorie finale
+                    if hit_values <= {1,2}:
+                        exclusivity = "bona_fide"
+                    elif 0 in hit_values and (1 in hit_values or 2 in hit_values):
+                        exclusivity = "ambiguous"
+                    elif hit_values == {0}:
+                        exclusivity = "non_exclusive"
+                    else:
+                        exclusivity = "ambiguous"  # sécurité
+
+                    out_f.write(f"{trf_id}\t{seq}\t{length}\t{origins}\t{exclusivity}\n")
+
+    print(f"Exclusivity check finished. Results in '{output_file}'")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -449,6 +493,60 @@ def main():
         trna_scan_filtered_file=getattr(args, "trnascan-filtered"),
         trna_spliced_file=getattr(args, "trna-spliced"),
     ))
+
+    parser_split = subparser.add_parser(
+        "split-tsv",
+        help="Split a large tRF TSV file into smaller blocks for memory-efficient processing."
+    )
+    parser_split.add_argument(
+        "input", type=str, help="Path to the large tRF TSV file."
+    )
+    parser_split.add_argument(
+        "--output-dir", type=str, default="trf_lookup_blocks",
+        help="Directory to store TSV blocks. Default: trf_lookup_blocks"
+    )
+    parser_split.add_argument(
+        "--lines-per-block", type=int, default=1000000,
+        help="Number of lines per block. Default: 1000000"
+    )
+    parser_split.set_defaults(func=lambda args: trf_lookup_split(
+        trf_lookup_16_50=args.input, output_dir=args.output_dir, lines_per_block=args.lines_per_block
+    ))
+
+    parser_exclusivity = subparser.add_parser(
+        "check-exclusivity",
+        help=(
+            "Check tRF exclusivity against genome and exonic masks.\n"
+            "Outputs a TSV with tRF_id, sequence, length, origins, exclusivity status."
+        )
+    )
+    parser_exclusivity.add_argument(
+        "genome", type=str, help="Genome FASTA file."
+    )
+    parser_exclusivity.add_argument(
+        "--num-autosomes", type=int, default=19,
+        help="Number of autosomes (X,Y,MT added automatically). Default: 19"
+    )
+    parser_exclusivity.add_argument(
+        "--block-dir", type=str, default="trf_lookup_blocks",
+        help="Directory containing tRF TSV blocks. Default: trf_lookup_blocks"
+    )
+    parser_exclusivity.add_argument(
+        "--mask-dir", type=str, default="exonic_masks",
+        help="Directory containing exonic masks. Default: exonic_masks"
+    )
+    parser_exclusivity.add_argument(
+        "--output", type=str, default="exclusivity_results.tsv",
+        help="Output TSV file with exclusivity results. Default: exclusivity_results.tsv"
+    )
+    parser_exclusivity.set_defaults(func=lambda args: check_exclusivity(
+        genome_file=args.genome,
+        num_autosomes=args.num_autosomes,
+        block_dir=args.block_dir,
+        mask_dir=args.mask_dir,
+        output_file=args.output
+    ))
+
 
     args = parser.parse_args()
     args.func(args)
