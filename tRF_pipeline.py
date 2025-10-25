@@ -1,7 +1,6 @@
 import os
 import argparse
 import subprocess
-import re
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -331,7 +330,9 @@ def main():
             "4. Add CCA tails and 5' nucleotide extensions.\n"
             "5. Generate k-mers from tRNA sequences.\n"
             "6. Generate a genome search space for mapping.\n"
-            "7. Generate exonic masks for each chromosome and strand.\n\n"
+            "7. Generate exonic masks for each chromosome and strand.\n"
+            "8. Check exclusivity of tRF candidates to tRNA space.\n\n"
+            "Output: exclusivity_results.tsv containing bona_fide, ambiguous, and non_exclusive tRFs."
             "Example usage:\n"
             "  python tRF_pipeline.py run-scan genome.fa --outdir results\n"
             "  python tRF_pipeline.py filter input.txt --output filtered.txt\n"
