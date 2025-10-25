@@ -1,0 +1,4 @@
+1               1       	10       	60       	Ser	GGA	0	0	85.2	
+1               2       	120      	180      	Gly	CCC	0	0	75.4	
+2               1       	30       	90       	Lys	TTT	0	0	92.5	
+X               1       	40       	100      	Val	AAC	0	0	66.8	pseudo

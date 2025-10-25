@@ -1,0 +1,8 @@
+Sequence        tRNA     	Bounds   	tRNA	Anti	Intron Bounds	Inf	      
+Name            tRNA #  	Begin    	End      	Type	Codon	Begin	End	Score	Note
+--------        ------  	-----    	------   	----	-----	-----	----	------	------
+1               1       	10       	60       	Ser	GGA	0	0	85.2	
+1               2       	120      	180      	Gly	CCC	0	0	75.4	
+2               1       	30       	90       	Lys	TTT	0	0	92.5	
+2               2       	150      	210      	Undet	NNN	0	0	22.2	
+X               1       	40       	100      	Val	AAC	0	0	66.8	pseudo
