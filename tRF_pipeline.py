@@ -158,7 +158,8 @@ def genome_search_space(genome_file, outfile, num_autosomes):
     return outfile
 
 def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna_spliced_file):
-    chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
+    chrom_order = ["1", "2", "X"]
+    # chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
     mask = {}
 
     with open(genome_search_space_file, "r") as infile:

@@ -22,3 +22,13 @@ This pipeline processes a reference genome to:
 6. Check **tRF exclusivity** against tRNA and non-tRNA genomic regions.
 
 The final output is a **TSV file** listing all tRFs with exclusivity status (`bona_fide`, `ambiguous`, `non_exclusive`).
+
+---
+
+## Pipeline Steps
+
+### 1. Run tRNAscan-SE
+Detect tRNA genes from a reference genome.
+
+```bash
+python tRF_pipeline.py run-scan genome.fa
