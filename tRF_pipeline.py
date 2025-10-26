@@ -708,7 +708,7 @@ def main():
         help="Directory containing tRF count tables (bona_fide + non_exclusive)"
     )
     parser_metadata.add_argument(
-        "lookup_tsv", 
+        "lookup-tsv", 
         help="tRF lookup table TSV generated in step 5/6"
     )
     parser_metadata.add_argument(
@@ -717,10 +717,10 @@ def main():
         help="Folder to save tables with metadata"
     )
     parser_metadata.set_defaults(func=lambda args: add_metadata(
-        exclusivity_file=args.exclusivity_file,
-        count_dir=args.count_dir,
-        lookup_tsv=args.lookup_tsv,
-        output_dir=args.output_dir
+        exclusivity_file=getattr(args, "exclusivity-file"),
+        count_dir=getattr(args, "count-dir"),
+        lookup_tsv=getattr(args, "lookup-tsv"),
+        output_dir=getattr(args, "output-dir")
     ))
 
     args = parser.parse_args()
