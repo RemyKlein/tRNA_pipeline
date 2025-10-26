@@ -691,7 +691,7 @@ def main():
     )
     parser_split_bona.set_defaults(func=lambda args: split_bona_fide(
         exclusivity_file=getattr(args, "exclusivity-file"),
-        tRF_count_dir=args.count-dir,
+        tRF_count_dir=getattr(args, "count-dir"),
         output_dir=args.output_dir
     ))
 
