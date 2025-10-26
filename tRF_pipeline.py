@@ -1,10 +1,11 @@
 import os
 import argparse
 import subprocess
+import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 def run_trnascan(genome_file):
     genome_file = os.path.abspath(genome_file)
@@ -158,8 +159,8 @@ def genome_search_space(genome_file, outfile, num_autosomes):
     return outfile
 
 def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna_spliced_file):
-    chrom_order = ["1", "2", "X"]
-    # chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
+    # chrom_order = ["1", "2", "X"]
+    chrom_order = ["1", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "2", "3", "4", "5", "6", "7", "8", "9", "MT", "X", "Y"]
     mask = {}
 
     with open(genome_search_space_file, "r") as infile:
@@ -291,9 +292,8 @@ def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_fi
                 for line in f:
                     trf_id, seq, length, origins = line.strip().split("\t")
                     length = int(length)
-                    hit_values = set()  # Contient les valeurs du mask rencontrées
+                    hit_values = set()  
 
-                    # Parcourir tout le génome pour trouver les positions de ce tRF
                     for chrom in genome:
                         for strand in ["+", "-"]:
                             seq_genome = genome[chrom][strand]
@@ -306,7 +306,6 @@ def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_fi
                                 hit_values.update(mask_slice)
                                 start = index + 1
 
-                    # Déterminer la catégorie finale
                     if hit_values <= {1,2}:
                         exclusivity = "bona_fide"
                     elif 0 in hit_values and (1 in hit_values or 2 in hit_values):
@@ -314,11 +313,112 @@ def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_fi
                     elif hit_values == {0}:
                         exclusivity = "non_exclusive"
                     else:
-                        exclusivity = "ambiguous"  # sécurité
+                        exclusivity = "ambiguous"
 
                     out_f.write(f"{trf_id}\t{seq}\t{length}\t{origins}\t{exclusivity}\n")
 
     print(f"Exclusivity check finished. Results in '{output_file}'")
+
+def run_tRF_abundance_table(lookup, trimmed_fastq, outdir):
+    print("=== Step 10: Generating tRF abundance table ===")
+    os.makedirs(outdir, exist_ok=True)
+
+    lookup_sequences = set()
+    for record in SeqIO.parse(lookup, "fasta"):
+        seq = str(record.seq)
+        lookup_sequences.add(seq)
+
+    print(f"Loaded {len(lookup_sequences):,} sequences from lookup table.")
+
+    for sample in trimmed_fastq:
+        sample_name = os.path.basename(sample).replace(".fastq", "")
+        output_file = os.path.join(outdir, f"{sample_name}_tRF_counts.tsv")
+
+        read_counts = Counter()
+        total_reads = 0
+        with open(sample, "rt") as handle:
+            for record in SeqIO.parse(handle, "fastq"):
+                seq = str(record.seq)
+                read_counts[seq] += 1
+                total_reads += 1
+
+            print(f"Counted {len(read_counts):,} unique sequences from {total_reads:,} reads in FASTQ.")
+
+            # Keeping only reads that appears in lookup_sequence
+            filtered_counts = {seq: counts for seq, counts in read_counts.items() if seq in lookup_sequences}
+
+            print(f"{len(filtered_counts):,} reads matched the lookup table sequences (tRF candidates).")
+
+            total_tRF_reads = sum(filtered_counts.values())
+
+            rows = []
+            for seq, count in filtered_counts.items():
+                rpm_tRNAspace = (count / total_tRF_reads) * 1e6 if total_tRF_reads > 0 else 0
+                rpm_total = (count / total_reads) * 1e6 if total_reads > 0 else 0
+                rows.append([seq, count, rpm_tRNAspace, rpm_total])
+
+            df = pd.DataFrame(rows, columns=["sequence", "raw_count", "RPM_tRNAspace", "RPM_total"])
+            df = df.sort_values(by="raw_count", ascending=False)
+            df.to_csv(output_file, sep="\t", index=False)
+            print(f"tRF abundance table saved for : {sample_name}-{output_file}")
+
+def split_bona_fide(exclusivity_file, tRF_count_dir, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+
+    exclusivity_df = pd.read_csv(exclusivity_file, sep="\t", dtype=str)
+    seq_to_status = dict(zip(exclusivity_df["sequence"], exclusivity_df["exclusivity"]))
+
+    for count_file in os.listdir(tRF_count_dir):
+        if not count_file.endswith(".tsv"):
+            continue
+        sample_path = os.path.join(tRF_count_dir, count_file)
+        sample_name = os.path.splitext(count_file)[0]
+
+        df = pd.read_csv(sample_path, sep="\t", dtype=str)
+        df["exclusivity"] = df["sequence"].map(seq_to_status).fillna("not_in_lookup")
+
+        bona_fide_df = df[df["exclusivity"] == "bona_fide"]
+        other_df = df[df["exclusivity"] != "bona_fide"]
+
+        bona_fide_file = os.path.join(output_dir, f"{sample_name}_bona_fide.tsv")
+        other_file = os.path.join(output_dir, f"{sample_name}_ambiguous_or_non_exclusive.tsv")
+
+        bona_fide_df.to_csv(bona_fide_file, sep="\t", index=False)
+        other_df.to_csv(other_file, sep="\t", index=False)
+        print(f"{sample_name}: {len(bona_fide_df)} bona_fide, {len(other_df)} ambiguous/non_exclusive")
+
+def add_metadata(exclusivity_file, count_dir, lookup_tsv, output_dir):
+    import os
+    import pandas as pd
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1. Load exclusivity info
+    exclusivity_df = pd.read_csv(exclusivity_file, sep="\t", dtype=str)
+    seq_to_exclusivity = dict(zip(exclusivity_df["sequence"], exclusivity_df["exclusivity"]))
+
+    # 2. Load lookup table for origins and tRF IDs
+    lookup_df = pd.read_csv(lookup_tsv, sep="\t", dtype=str)
+    seq_to_origin = dict(zip(lookup_df["sequence"], lookup_df["origins"]))
+    seq_to_id = dict(zip(lookup_df["sequence"], lookup_df["tRF_id"]))
+
+    # 3. Add metadata to each tRF count file
+    for count_file in os.listdir(count_dir):
+        if not count_file.endswith(".tsv"):
+            continue
+        sample_path = os.path.join(count_dir, count_file)
+        df = pd.read_csv(sample_path, sep="\t", dtype=str)
+
+        df["tRF_id"] = df["sequence"].map(seq_to_id)
+        df["origins"] = df["sequence"].map(seq_to_origin)
+        df["exclusivity"] = df["sequence"].map(seq_to_exclusivity).fillna("not_in_lookup")
+        df["MINTbase_link"] = df["tRF_id"].apply(
+            lambda x: f"https://cm.jefferson.edu/MINTbase_v2/tRF/{x}" if pd.notna(x) else ""
+        )
+
+        out_file = os.path.join(output_dir, os.path.basename(count_file).replace(".tsv", "_metadata.tsv"))
+        df.to_csv(out_file, sep="\t", index=False)
+        print(f"Metadata added for {count_file}: {out_file}")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -459,6 +559,7 @@ def main():
         "input", type=str, help="FASTA file of the genome."
     )
     parser_search_space.add_argument(
+        
         "--output", type=str, default="genome_search_space.txt",
         help="Path to save the search space file. Default: genome_search_space.txt"
     )
@@ -549,6 +650,78 @@ def main():
         output_file=args.output
     ))
 
+    parser_tRF_count_table = subparser.add_parser(
+        "trf-count-table",
+        help="Generate tRF abundance table(s) for one or more FASTQ files"
+    )
+    parser_tRF_count_table.add_argument(
+        "lookup",
+        help="FASTA lookup table"
+    )
+    parser_tRF_count_table.add_argument(
+        "file-reads",
+        nargs="+",
+        help="One or more trimmed FASTQ files"
+    )
+    parser_tRF_count_table.add_argument(
+        "--output",
+        default="tRF_abundance",
+        help="Output directory for TSV files"
+    )
+    parser_tRF_count_table.set_defaults(func=lambda args: run_tRF_abundance_table(
+        lookup=args.lookup, trimmed_fastq=args.file_reads, outdir=args.output
+    ))
+
+    parser_split_bona = subparser.add_parser(
+        "split-bona-fide",
+        help="Split tRFs into bona_fide and others according to exclusivity_results.tsv"
+    )
+    parser_split_bona.add_argument(
+        "exclusivity-file", 
+        help="File exclusivity_results.tsv"
+    )
+    parser_split_bona.add_argument(
+        "count-dir", 
+        help="Folder containing the tRF_count tables"
+    )
+    parser_split_bona.add_argument(
+        "--output-dir", 
+        default="tRF_bona_fide", 
+        help="Folder for saving separate files"
+    )
+    parser_split_bona.set_defaults(func=lambda args: split_bona_fide(
+        exclusivity_file=getattr(args, "exclusivity-file"),
+        tRF_count_dir=args.count-dir,
+        output_dir=args.output_dir
+    ))
+
+    parser_metadata = subparser.add_parser(
+        "add-metadata",
+        help="Add metadata to tRF count tables using exclusivity results and lookup table."
+    )
+    parser_metadata.add_argument(
+        "exclusivity-file", 
+        help="File exclusivity_results.tsv from step 11"
+    )
+    parser_metadata.add_argument(
+        "count-dir", 
+        help="Directory containing tRF count tables (bona_fide + non_exclusive)"
+    )
+    parser_metadata.add_argument(
+        "lookup_tsv", 
+        help="tRF lookup table TSV generated in step 5/6"
+    )
+    parser_metadata.add_argument(
+        "--output-dir", 
+        default="tRF_metadata", 
+        help="Folder to save tables with metadata"
+    )
+    parser_metadata.set_defaults(func=lambda args: add_metadata(
+        exclusivity_file=args.exclusivity_file,
+        count_dir=args.count_dir,
+        lookup_tsv=args.lookup_tsv,
+        output_dir=args.output_dir
+    ))
 
     args = parser.parse_args()
     args.func(args)
