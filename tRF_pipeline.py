@@ -669,7 +669,7 @@ def main():
         help="Output directory for TSV files"
     )
     parser_tRF_count_table.set_defaults(func=lambda args: run_tRF_abundance_table(
-        lookup=args.lookup, trimmed_fastq=args.file_reads, outdir=args.output
+        lookup=args.lookup, trimmed_fastq=getattr(args, "file-reads"), outdir=args.output
     ))
 
     parser_split_bona = subparser.add_parser(
