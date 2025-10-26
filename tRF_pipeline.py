@@ -717,10 +717,10 @@ def main():
         help="Folder to save tables with metadata"
     )
     parser_metadata.set_defaults(func=lambda args: add_metadata(
-        exclusivity_file=getattr(args, "exclusivity-file"),
-        count_dir=getattr(args, "count-dir"),
-        lookup_tsv=getattr(args, "lookup-tsv"),
-        output_dir=getattr(args, "output-dir")
+        exclusivity_file=getattr(args, "exclusivity_file"),
+        count_dir=getattr(args, "count_dir"),
+        lookup_tsv=getattr(args, "lookup_tsv"),
+        output_dir=getattr(args, "output_dir")
     ))
 
     args = parser.parse_args()
