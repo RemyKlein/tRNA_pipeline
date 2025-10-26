@@ -388,8 +388,6 @@ def split_bona_fide(exclusivity_file, tRF_count_dir, output_dir):
         print(f"{sample_name}: {len(bona_fide_df)} bona_fide, {len(other_df)} ambiguous/non_exclusive")
 
 def add_metadata(exclusivity_file, count_dir, lookup_tsv, output_dir):
-    import os
-    import pandas as pd
     os.makedirs(output_dir, exist_ok=True)
 
     # 1. Load exclusivity info
@@ -411,14 +409,10 @@ def add_metadata(exclusivity_file, count_dir, lookup_tsv, output_dir):
         df["tRF_id"] = df["sequence"].map(seq_to_id)
         df["origins"] = df["sequence"].map(seq_to_origin)
         df["exclusivity"] = df["sequence"].map(seq_to_exclusivity).fillna("not_in_lookup")
-        df["MINTbase_link"] = df["tRF_id"].apply(
-            lambda x: f"https://cm.jefferson.edu/MINTbase_v2/tRF/{x}" if pd.notna(x) else ""
-        )
 
         out_file = os.path.join(output_dir, os.path.basename(count_file).replace(".tsv", "_metadata.tsv"))
         df.to_csv(out_file, sep="\t", index=False)
         print(f"Metadata added for {count_file}: {out_file}")
-
 
 def main():
     parser = argparse.ArgumentParser(
