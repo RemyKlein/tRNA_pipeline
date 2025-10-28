@@ -438,7 +438,7 @@ def main():
             "7. exonic-mask        : Generate exonic masks for each chromosome and strand.\n"
             "8. split-tsv          : Split the large tRF lookup table into smaller blocks for exclusivity check.\n"
             "9. check-exclusivity  : Classify tRFs as bona_fide, ambiguous, or non_exclusive.\n"
-            "10. trf-count-table    : Count tRF abundances from FASTQ files.\n"
+            "10. trf-count-table   : Count tRF abundances from FASTQ files.\n"
             "11. split-bona-fide   : Separate bona_fide tRFs from others.\n"
             "12. add-metadata      : Add metadata to tRF count tables.\n\n"
             "Prerequisites:\n"
