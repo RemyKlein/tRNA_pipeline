@@ -268,7 +268,7 @@ tRNA_pipeline/
 
 ## Notes & Recommendations
 - Use **Ensembl genomes** for consistent chromosome naming.
-- Processing all tRFs (16 - 50 nt) may be memory-intensive. The `split-tsv`step avoids memory overflow.
+- Processing all tRFs (16 - 50 nt) may be memory-intensive. The `split-tsv` step avoids memory overflow.
 - The exclusivity step (Step 9) is the most time-consuming; parallelization is recommended for large genomes.
 - This pipeline was tester for _Mus musculus_ (GRCm39) but can be adapted to other species with minor changes.
 
@@ -276,5 +276,9 @@ tRNA_pipeline/
 
 ## Citation
 If you use this pipeline, please cite:
-- Loher, P., Telonis, A. G., & Rigoutsos, I. (2017). _MINTmap: fast and exhaustive profiling of nuclear and mitochondrial tRNA fragments from short RNA-seq data._ Scientific Reports, 7, 41184. [https://doi.org/10.1038/srep41184](https://doi.org/10.1038/srep41184)
-- Klein, R. (2025). _tRNA_pipeline: a Python implementation of the MINTmap concept for tRF discovery and quantification._ GitHub: [https://github.com/RemyKlein/tRNA_pipeline](https://github.com/RemyKlein/tRNA_pipeline) 
+>Loher, P., Telonis, A. G., & Rigoutsos, I. (2017). _MINTmap: fast and exhaustive profiling of
+>nuclear and mitochondrial tRNA fragments from short RNA-seq data._ Scientific Reports, 7, 41184.
+>[https://doi.org/10.1038/srep41184](https://doi.org/10.1038/srep41184).
+
+>Klein, R. (2025). _tRNA_pipeline: a Python implementation of the MINTmap concept for tRF discovery
+>and quantification._ GitHub: [https://github.com/RemyKlein/tRNA_pipeline](https://github.com/RemyKlein/tRNA_pipeline) 
