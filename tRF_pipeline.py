@@ -234,6 +234,7 @@ def generate_exonic_mask(genome_search_space_file, trna_scan_filtered_file, trna
     return mask
 
 def trf_lookup_split(trf_lookup_16_50, lines_per_block, output_dir):
+    print("=== Step 8: Splitting large tRF lookup table into smaller TSV blocks ===")
     os.makedirs(output_dir, exist_ok=True)
     block_index = 1
     line_count = 0
@@ -257,7 +258,7 @@ def trf_lookup_split(trf_lookup_16_50, lines_per_block, output_dir):
     return output_dir
 
 def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_file):
-    print("=== Step 8: Checking tRF exclusivity (bona_fide, ambiguous, non_exclusive) ===")
+    print("=== Step 9: Checking tRF exclusivity (bona_fide, ambiguous, non_exclusive) ===")
     # Loading genome 
     genome = {}
     main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
@@ -326,7 +327,7 @@ def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_fi
     print(f"Exclusivity check finished. Results in '{output_file}'")
 
 def run_tRF_abundance_table(lookup, trimmed_fastq, outdir):
-    print("=== Step 9: Generating tRF abundance table from FASTQ reads ===")
+    print("=== Step 10: Generating tRF abundance table from FASTQ reads ===")
     os.makedirs(outdir, exist_ok=True)
 
     lookup_sequences = set()
@@ -369,7 +370,7 @@ def run_tRF_abundance_table(lookup, trimmed_fastq, outdir):
             print(f"tRF abundance table saved for : {sample_name}-{output_file}")
 
 def split_bona_fide(exclusivity_file, tRF_count_dir, output_dir):
-    print("=== Step 10: Splitting bona_fide tRFs from others ===")
+    print("=== Step 11: Splitting bona_fide tRFs from others ===")
     os.makedirs(output_dir, exist_ok=True)
 
     exclusivity_df = pd.read_csv(exclusivity_file, sep="\t", dtype=str)
@@ -395,7 +396,7 @@ def split_bona_fide(exclusivity_file, tRF_count_dir, output_dir):
         print(f"{sample_name}: {len(bona_fide_df)} bona_fide, {len(other_df)} ambiguous/non_exclusive")
 
 def add_metadata(exclusivity_file, count_dir, lookup_tsv, output_dir):
-    print("=== Step 11: Adding metadata to tRF count tables ===")
+    print("=== Step 12: Adding metadata to tRF count tables ===")
     os.makedirs(output_dir, exist_ok=True)
 
     exclusivity_df = pd.read_csv(exclusivity_file, sep="\t", dtype=str)
@@ -435,10 +436,11 @@ def main():
             "5. generate-kmers     : Create k-mers from mature tRNAs for tRF lookup.\n"
             "6. genome-search-space: Prepare genome sequences for mapping.\n"
             "7. exonic-mask        : Generate exonic masks for each chromosome and strand.\n"
-            "8. check-exclusivity  : Classify tRFs as bona_fide, ambiguous, or non_exclusive.\n"
-            "9. trf-count-table    : Count tRF abundances from FASTQ files.\n"
-            "10. split-bona-fide   : Separate bona_fide tRFs from others.\n"
-            "11. add-metadata      : Add metadata to tRF count tables.\n\n"
+            "8. split-tsv          : Split the large tRF lookup table into smaller blocks for exclusivity check.\n"
+            "9. check-exclusivity  : Classify tRFs as bona_fide, ambiguous, or non_exclusive.\n"
+            "10. trf-count-table    : Count tRF abundances from FASTQ files.\n"
+            "11. split-bona-fide   : Separate bona_fide tRFs from others.\n"
+            "12. add-metadata      : Add metadata to tRF count tables.\n\n"
             "Prerequisites:\n"
             "- Genome FASTA must be decompressed and use Ensembl chromosome names.\n"
             "- Biopython installed.\n"
@@ -548,6 +550,28 @@ def main():
         genome_search_space_file=getattr(args, "genome-search-space"),
         trna_scan_filtered_file=getattr(args, "trnascan-filtered"),
         trna_spliced_file=getattr(args, "trna-spliced"),
+    ))
+
+    parser_split = subparser.add_parser(
+        "split-tsv",
+        help="Split a large tRF TSV file into smaller blocks for memory-efficient processing."
+    )
+    parser_split.add_argument(
+        "input", type=str,
+        help="Path to the large tRF TSV file."
+    )
+    parser_split.add_argument(
+        "--output-dir", type=str, default="trf_lookup_blocks",
+        help="Directory to store TSV blocks. Default: trf_lookup_blocks"
+    )
+    parser_split.add_argument(
+        "--lines-per-block", type=int, default=1000000,
+        help="Number of lines per block. Default: 1000000"
+    )
+    parser_split.set_defaults(func=lambda args: trf_lookup_split(
+        trf_lookup_16_50=args.input,
+        output_dir=args.output_dir,
+        lines_per_block=args.lines_per_block
     ))
 
     parser_exclusivity = subparser.add_parser(
