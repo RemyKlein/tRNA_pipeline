@@ -15,12 +15,12 @@
 ## Overview
 
 This repository provides a **deterministic and reproducible implementation** of the MINTmap tRNA/tRF processing workflow.  
-It builds a lookup table of **tRNA-derived fragments (tRFs)** and determines whether each fragment is **exclusive to the tRNA space** within the genome. It designed to perform fast, reproducible, and transparent profiling pf **tRNA-derived fragments (tRFs)** from small RNA-seq data.
+It builds a lookup table of **tRNA-derived fragments (tRFs)** and determines whether each fragment is **exclusive to the tRNA space** within the genome. It designed to perform fast, reproducible, and transparent profiling of **tRNA-derived fragments (tRFs)** from small RNA-seq data.
 
 This pipeline processes a reference genome to:
 
 1. Identify tRNA genes using **tRNAscan-SE**.  
-2. Filter tRNA to retain only canonical chromosomes and valid anticodons.
+2. Filter tRNAs to retain only canonical chromosomes and valid anticodons.
 3. Extract and splice tRNA sequences from the genome.
 4. Add 3' **CCA tails** and possible 5′ base extensions.  
 5. Generate all possible **k-mers** (candidate tRFs).  
@@ -36,9 +36,10 @@ The final output is a **TSV file** listing all tRFs with exclusivity status (`bo
 ---
 
 ## Requirements
-- Python ≥ 3.8
-- [tRNAscan-SE](https://github.com/UCSC-LoweLab/tRNAscan-SE) ≥ 2.0 installed and available in `PATH`
-- Recommended system: Linux or macOS
+- **Python:** ≥ 3.8  
+- **tRNAscan-SE:** ≥ 2.0 (must be installed and available in `PATH`)  
+- **Dependencies:** lightweight and installable via pip (`biopython`, `pandas`); no external alignment tools required  
+- **Recommended system:** Linux or macOS
 
 ### Install Python dependencies
 
@@ -270,7 +271,7 @@ tRNA_pipeline/
 - Use **Ensembl genomes** for consistent chromosome naming.
 - Processing all tRFs (16 - 50 nt) may be memory-intensive. The `split-tsv` step avoids memory overflow.
 - The exclusivity step (Step 9) is the most time-consuming; parallelization is recommended for large genomes.
-- This pipeline was tester for _Mus musculus_ (GRCm39) but can be adapted to other species with minor changes.
+- This pipeline was tested for _Mus musculus_ (GRCm39) but can be adapted to other species with minor changes.
 
 ---
 
