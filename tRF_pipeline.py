@@ -6,6 +6,7 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from collections import defaultdict, Counter
+from multiprocessing import Pool, cpu_count
 
 def run_trnascan(genome_file):
     genome_file = os.path.abspath(genome_file)
@@ -257,36 +258,77 @@ def trf_lookup_split(trf_lookup_16_50, lines_per_block, output_dir):
     print(f"Split complete: {line_count} lines divided into {block_index - 1} blocks in '{output_dir}'")
     return output_dir
 
-def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_file):
+_GENOME = None
+_MASK = None
+
+def _init_excl_worker(genome, mask):
+    global _GENOME, _MASK
+    _GENOME = genome
+    _MASK = mask
+
+def _check_one_trf(line):
+    line = line.strip()
+    if not line:
+        return None
+    trf_id, seq, length, origins = line.split("\t")
+    length = int(length)
+
+    hit_values = set()
+    for chrom in _GENOME:
+        for strand in ["+", "-"]:
+            seq_genome = _GENOME[chrom][strand]
+            start = 0
+            while True:
+                idx = seq_genome.find(seq, start)
+                if idx == -1:
+                    break
+                mask_slice = _MASK[chrom][strand][idx:idx+length]
+                hit_values.update(mask_slice)
+                start = idx + 1
+
+    if hit_values <= {1, 2}:
+        exclusivity = "bona_fide"
+    elif 0 in hit_values and (1 in hit_values or 2 in hit_values):
+        exclusivity = "ambiguous"
+    elif hit_values == {0}:
+        exclusivity = "non_exclusive"
+    else:
+        exclusivity = "ambiguous"
+
+    return f"{trf_id}\t{seq}\t{length}\t{origins}\t{exclusivity}\n"
+
+def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_file, threads=None):
     print("=== Step 9: Checking tRF exclusivity (bona_fide, ambiguous, non_exclusive) ===")
-    # Loading genome 
+
     genome = {}
     main_chrom = [str(i) for i in range(1, num_autosomes + 1)] + ["X", "Y", "MT"]
 
     print("Loading genome...")
     for record in SeqIO.parse(genome_file, "fasta"):
         if record.id in main_chrom:
-            sequence = str(record.seq)
-            sequence_reverse_complement = str(Seq(sequence).reverse_complement())
+            seq = str(record.seq)
             genome[record.id] = {
-                "+":sequence,
-                "-":sequence_reverse_complement
+                "+": seq,
+                "-": str(Seq(seq).reverse_complement())
             }
 
-    # Load masks
     mask = {}
     print("Loading exonic masks...")
     for fname in os.listdir(mask_dir):
-        if fname.endswith(".mask"):
-            chrom = fname.split("_")[0].replace("chr","")
-            strand = "+" if "plus" in fname else "-"
-            with open(os.path.join(mask_dir, fname), "r") as f:
-                mask_seq = [int(c) for c in f.read().strip()]
-            if chrom not in mask:
-                mask[chrom] = {}
-            mask[chrom][strand] = mask_seq
+        if not fname.endswith(".mask"):
+            continue
+        chrom = fname.split("_")[0].replace("chr", "")
+        strand = "+" if "plus" in fname else "-"
+        with open(os.path.join(mask_dir, fname), "r") as f:
+            mask_seq = [int(c) for c in f.read().strip()]
+        if chrom not in mask:
+            mask[chrom] = {}
+        mask[chrom][strand] = mask_seq
 
-    print("Checking tRF exclusivity...")
+    if threads is None or threads <= 0:
+        threads = cpu_count()
+    print(f"Using {threads} worker processes for parallel exclusivity checking.")
+
     with open(output_file, "w") as out_f:
         out_f.write("tRF_id\tsequence\tlength\torigins\texclusivity\n")
 
@@ -294,37 +336,27 @@ def check_exclusivity(genome_file, num_autosomes, block_dir, mask_dir, output_fi
             if not block_file.endswith(".tsv"):
                 continue
             block_path = os.path.join(block_dir, block_file)
-            with open(block_path) as f:
-                header = next(f)
-                for line in f:
-                    trf_id, seq, length, origins = line.strip().split("\t")
-                    length = int(length)
-                    hit_values = set()  
+            print(f"\nProcessing block: {block_path}")
 
-                    for chrom in genome:
-                        for strand in ["+", "-"]:
-                            seq_genome = genome[chrom][strand]
-                            start = 0
-                            while True:
-                                index = seq_genome.find(seq, start)
-                                if index == -1:
-                                    break
-                                mask_slice = mask[chrom][strand][index:index+length]
-                                hit_values.update(mask_slice)
-                                start = index + 1
+            with open(block_path) as bf:
+                next(bf) 
+                lines = bf.readlines()
 
-                    if hit_values <= {1,2}:
-                        exclusivity = "bona_fide"
-                    elif 0 in hit_values and (1 in hit_values or 2 in hit_values):
-                        exclusivity = "ambiguous"
-                    elif hit_values == {0}:
-                        exclusivity = "non_exclusive"
-                    else:
-                        exclusivity = "ambiguous"
+            if not lines:
+                continue
 
-                    out_f.write(f"{trf_id}\t{seq}\t{length}\t{origins}\t{exclusivity}\n")
+            with Pool(processes=threads, initializer=_init_excl_worker, initargs=(genome, mask)) as pool:
+                results = pool.map(_check_one_trf, lines, chunksize=200)
 
-    print(f"Exclusivity check finished. Results in '{output_file}'")
+            written = 0
+            for res in results:
+                if res:
+                    out_f.write(res)
+                    written += 1
+
+            print(f"Finished block {block_file}: wrote {written} entries.")
+
+    print(f"\nExclusivity check completed. Results written to '{output_file}'")
 
 def run_tRF_abundance_table(lookup, trimmed_fastq, outdir):
     print("=== Step 10: Generating tRF abundance table from FASTQ reads ===")
@@ -587,9 +619,11 @@ def main():
                                    help="Directory with exonic mask files. Default: exonic_masks")
     parser_exclusivity.add_argument("--output", type=str, default="exclusivity_results.tsv",
                                    help="Output TSV file. Default: exclusivity_results.tsv")
+    parser_exclusivity.add_argument("--threads", type=int, default=0,
+                                    help="Number of worker processes to use (0 = use all available CPUs).")
     parser_exclusivity.set_defaults(func=lambda args: check_exclusivity(
         genome_file=args.genome, num_autosomes=args.num_autosomes,
-        block_dir=args.block_dir, mask_dir=args.mask_dir, output_file=args.output
+        block_dir=args.block_dir, mask_dir=args.mask_dir, output_file=args.output, threads=args.threads
     ))
 
     parser_tRF_count_table = subparser.add_parser(
