@@ -15,11 +15,11 @@ Implemented from the published MINTmap 1.0 method:
 - raw counts and RPM relative to all reads and assigned tRNA-space reads are
   reported.
 
-Repository decision: only histidyl tRNAs receive a −1 G. The paper's literal
-step 4 says to generate A/T/C/G extensions for every reference sequence, while
-its figure and biological discussion describe tRNA^His −1 guanylation. The
-former behavior is deliberately not reproduced because it creates hypothetical
-extensions for unrelated tRNAs. This is a known parity difference.
+Following the literal MINTmap 1.0 lookup-building step 4, every mature tRNA is
+represented without a −1 extension and with four additional variants prefixed
+by A, T, C, and G. The biological discussion specifically associates −1
+guanylation with tRNA^His, but the exhaustive four-base enumeration is the
+published lookup-generation rule implemented here.
 
 Mitochondrial records use the same configurable maturation rules. No chromosome
 name is intrinsically nuclear or mitochondrial, and no chromosome is silently
@@ -107,7 +107,8 @@ Lookup TSV:
 - `tRF_id`: deterministic SHA-256-derived sequence identifier;
 - `sequence`, `length`, `exclusivity`;
 - `origins_json`: all source tRNAs with amino acid, anticodon, chromosome,
-  locus, strand, mature coordinates, added-CCA overlap, histidyl −1 inclusion,
+  locus, strand, mature coordinates, added-CCA overlap, the −1 base when
+  present, histidyl −1 inclusion,
   and splice-junction crossing.
 
 Count TSV:
@@ -119,7 +120,7 @@ Count TSV:
 ## Validation and tests
 
 Synthetic tests cover positive/negative extraction, both intron orientations,
-CCA, His −1 G, deterministic multi-origin fragments, masks, all exclusivity
+CCA, the four published −1 variants, deterministic multi-origin fragments, masks, all exclusivity
 states, special mature-only candidates, gzip FASTQ, both RPM calculations,
 malformed inputs, and a repeated end-to-end workflow.
 

@@ -14,7 +14,7 @@ For a future parity run:
 6. record every difference in a machine-readable JSON report containing tool
    versions, input checksums, totals, and per-sequence differences.
 
-Expected non-parity: this implementation follows the task's biologically
-constrained rule of adding only a -1 G to histidyl tRNAs. The literal MINTmap
-paper step 4 enumerates A/T/C/G extensions for every reference sequence.
+The implementation follows the literal MINTmap paper step 4 by enumerating
+A/T/C/G extensions for every reference sequence. Direct parity with the
+official precomputed lookup still needs to be measured by the procedure above.
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from .exclusivity import classify_hits, find_hits
 from .fragments import generate_fragments
 from .genome import build_masks, read_fasta
-from .maturation import extract_and_mature
+from .maturation import mintmap_mature_variants
 from .quantification import quantify_fastq
 from .trnascan import parse_trnascan
 
@@ -21,7 +21,11 @@ def _chromosomes(value: str | None) -> list[str] | None:
 def build_lookup(args: argparse.Namespace) -> None:
     genome = read_fasta(args.genome)
     loci = parse_trnascan(args.trnascan, _chromosomes(args.chromosomes))
-    trnas = [extract_and_mature(locus, genome[locus.chromosome]) for locus in loci]
+    trnas = [
+        variant
+        for locus in loci
+        for variant in mintmap_mature_variants(locus, genome[locus.chromosome])
+    ]
     fragments = generate_fragments(trnas, args.minimum, args.maximum)
     masks = build_masks(genome, loci)
     hits = find_hits((item.sequence for item in fragments), genome, masks)
@@ -32,7 +36,7 @@ def build_lookup(args: argparse.Namespace) -> None:
         writer.writeheader()
         for fragment in fragments:
             synthetic = any(
-                o.overlaps_added_cca or o.includes_histidine_minus_one or o.crosses_spliced_intron
+                o.overlaps_added_cca or o.minus_one_base or o.crosses_spliced_intron
                 for o in fragment.origins
             )
             writer.writerow(

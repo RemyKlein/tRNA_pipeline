@@ -69,7 +69,7 @@ def build_masks(
             else reverse_complement(genome[locus.chromosome][low - 1 : high])
         )
         # Synthetic positions used by MINTmap's mask cannot extend beyond a chromosome.
-        if locus.amino_acid.lower() in {"his", "histidine"} and start > 0:
+        if start > 0:
             mask[start - 1] = 2
         if not oriented.endswith("CCA") and end + 3 <= length:
             mask[end : end + 3] = b"\x02\x02\x02"

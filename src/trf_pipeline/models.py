@@ -36,8 +36,12 @@ class MatureTRNA:
     sequence: str
     genomic_sequence: str
     added_cca: bool
-    histidine_minus_one: bool
+    minus_one_base: str | None
     exon_junction: int | None = None
+
+    @property
+    def histidine_minus_one(self) -> bool:
+        return self.locus.amino_acid.lower() in {"his", "histidine"} and self.minus_one_base == "G"
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,7 @@ class FragmentOrigin:
     mature_start: int
     mature_end: int
     overlaps_added_cca: bool
+    minus_one_base: str | None
     includes_histidine_minus_one: bool
     crosses_spliced_intron: bool
 

@@ -21,9 +21,22 @@ def extract_and_mature(locus: TRNALocus, chromosome_sequence: str) -> MatureTRNA
         junction = left
     added_cca = not oriented.endswith("CCA")
     mature = oriented + ("CCA" if added_cca else "")
-    is_his = locus.amino_acid.lower() in {"his", "histidine"}
-    if is_his:
-        mature = "G" + mature
-        if junction is not None:
-            junction += 1
-    return MatureTRNA(locus, mature, oriented, added_cca, is_his, junction)
+    return MatureTRNA(locus, mature, oriented, added_cca, None, junction)
+
+
+def mintmap_mature_variants(locus: TRNALocus, chromosome_sequence: str) -> list[MatureTRNA]:
+    """Return the mature tRNA and all four -1 variants from MINTmap step 4."""
+    base = extract_and_mature(locus, chromosome_sequence)
+    variants = [base]
+    for nucleotide in "ATCG":
+        variants.append(
+            MatureTRNA(
+                locus=base.locus,
+                sequence=nucleotide + base.sequence,
+                genomic_sequence=base.genomic_sequence,
+                added_cca=base.added_cca,
+                minus_one_base=nucleotide,
+                exon_junction=(base.exon_junction + 1 if base.exon_junction is not None else None),
+            )
+        )
+    return variants

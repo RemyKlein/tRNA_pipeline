@@ -10,7 +10,7 @@ from trf_pipeline.coordinates import reverse_complement_interval
 from trf_pipeline.exclusivity import classify_hits, find_hits
 from trf_pipeline.fragments import generate_fragments
 from trf_pipeline.genome import build_masks, reverse_complement
-from trf_pipeline.maturation import extract_and_mature
+from trf_pipeline.maturation import extract_and_mature, mintmap_mature_variants
 from trf_pipeline.models import Exclusivity, GenomeHit, TRNALocus
 from trf_pipeline.quantification import quantify_fastq
 from trf_pipeline.trnascan import parse_trnascan
@@ -58,11 +58,18 @@ def test_encoded_and_added_cca():
     assert added.sequence == "ACGTTACCA" and added.added_cca
 
 
-def test_histidine_minus_one_is_specific():
-    his = extract_and_mature(locus(begin=1, end=6, amino_acid="His"), "ACGTTA")
-    ala = extract_and_mature(locus(begin=1, end=6, amino_acid="Ala"), "ACGTTA")
-    assert his.sequence == "GACGTTACCA" and his.histidine_minus_one
-    assert ala.sequence == "ACGTTACCA" and not ala.histidine_minus_one
+def test_mintmap_step_four_adds_all_minus_one_variants_to_every_trna():
+    for amino_acid in ("His", "Ala"):
+        variants = mintmap_mature_variants(locus(begin=1, end=6, amino_acid=amino_acid), "ACGTTA")
+        assert [item.minus_one_base for item in variants] == [None, "A", "T", "C", "G"]
+        assert [item.sequence for item in variants] == [
+            "ACGTTACCA",
+            "AACGTTACCA",
+            "TACGTTACCA",
+            "CACGTTACCA",
+            "GACGTTACCA",
+        ]
+        assert variants[-1].histidine_minus_one is (amino_acid == "His")
 
 
 def test_deterministic_fragments_and_multiple_origins():
@@ -78,9 +85,9 @@ def test_deterministic_fragments_and_multiple_origins():
 
 
 def test_fragment_metadata_for_junction_cca_and_minus_one():
-    trna = extract_and_mature(
+    trna = mintmap_mature_variants(
         locus(begin=1, end=12, amino_acid="His", intron_begin=5, intron_end=6), "ACGTGGACGTTA"
-    )
+    )[-1]
     fragments = generate_fragments([trna], 3, 8)
     assert any(any(o.crosses_spliced_intron for o in f.origins) for f in fragments)
     assert any(any(o.overlaps_added_cca for o in f.origins) for f in fragments)
