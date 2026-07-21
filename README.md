@@ -1,285 +1,167 @@
-# tRF Pipeline (based on MINTmap)
+# tRF Pipeline
 
-**Author:** Adapted and implemented by *Rémy Klein*  
-**Repository:** [https://github.com/RemyKlein/tRNA_pipeline](https://github.com/RemyKlein/tRNA_pipeline) 
+A transparent Python implementation of exact tRNA-derived fragment discovery
+and quantification, scientifically inspired by MINTmap 1.0. It is **not an
+output-equivalent port**: direct parity testing has not yet been completed.
 
----
+## Scientific scope
 
-**Reference:**  
-> Loher, P., Telonis, A. & Rigoutsos, I.  
-> MINTmap: fast and exhaustive profiling of nuclear and mitochondrial tRNA fragments from short RNA-seq data. Sci Rep 7, 41184 (2017).
-> [https://doi.org/10.1038/srep41184](https://doi.org/10.1038/srep41184)
+Implemented from the published MINTmap 1.0 method:
 
----
+- tRNAs are extracted in transcript orientation and introns are spliced;
+- a missing 3′ CCA is added, while an encoded terminal CCA is retained once;
+- exact candidate sequences of 16–50 nt are enumerated and deduplicated;
+- both genomic strands are searched exhaustively for exact matches;
+- raw counts and RPM relative to all reads and assigned tRNA-space reads are
+  reported.
 
-## Overview
+Repository decision: only histidyl tRNAs receive a −1 G. The paper's literal
+step 4 says to generate A/T/C/G extensions for every reference sequence, while
+its figure and biological discussion describe tRNA^His −1 guanylation. The
+former behavior is deliberately not reproduced because it creates hypothetical
+extensions for unrelated tRNAs. This is a known parity difference.
 
-This repository provides a **deterministic and reproducible implementation** of the MINTmap tRNA/tRF processing workflow.  
-It builds a lookup table of **tRNA-derived fragments (tRFs)** and determines whether each fragment is **exclusive to the tRNA space** within the genome. It designed to perform fast, reproducible, and transparent profiling of **tRNA-derived fragments (tRFs)** from small RNA-seq data.
+Mitochondrial records use the same configurable maturation rules. No chromosome
+name is intrinsically nuclear or mitochondrial, and no chromosome is silently
+dropped.
 
-This pipeline processes a reference genome to:
+## Coordinate conventions
 
-1. Identify tRNA genes using **tRNAscan-SE**.  
-2. Filter tRNAs to retain only canonical chromosomes and valid anticodons.
-3. Extract and splice tRNA sequences from the genome.
-4. Add 3' **CCA tails** and possible 5′ base extensions.  
-5. Generate all possible **k-mers** (candidate tRFs).  
-6. Build **genome search space** and generate **exonic masks**.  
-7. Split large tRF lookup tables into smaller blocks for memory-safe processing.
-8. Check **tRF exclusivity** against tRNA and non-tRNA genomic regions.
-9. Count tRF occurrences in trimmed FASTQ reads.
-10. Separate **bona fide tRFs** from ambiguous or non-exclusive ones.
-11. Add **metadata** to annotated tRF tables (ID, origin, exclusivity).
+tRNAscan-SE `Begin` and `End` are interpreted as 1-based inclusive genomic
+coordinates. A descending pair denotes the negative strand. Internally all
+intervals are 0-based half-open. For a forward interval `[start, end)` on a
+chromosome of length `L`, the reverse-complement interval is
+`[L-end, L-start)`. Intron coordinates are also 1-based inclusive and are
+converted once during maturation.
 
-The final output is a **TSV file** listing all tRFs with exclusivity status (`bona_fide`, `ambiguous`, `non_exclusive`) and associated counts and metadata.
+Every genome sequence, mask, hit, and origin retains explicit chromosome and
+strand metadata; FASTA record order has no scientific meaning.
 
----
+## Exclusivity decision tree
 
-## Requirements
-- **Python:** ≥ 3.8  
-- **tRNAscan-SE:** ≥ 2.0 (must be installed and available in `PATH`)  
-- **Dependencies:** lightweight and installable via pip (`biopython`, `pandas`); no external alignment tools required  
-- **Recommended system:** Linux or macOS
+Each occurrence is evaluated separately against the strand-specific tRNA mask.
 
-### Install Python dependencies
+1. Hits in both tRNA and non-tRNA space → `ambiguous`.
+2. Hits only in tRNA space → `bona_fide`.
+3. Hits only outside tRNA space → `non_exclusive`.
+4. No genomic hit → `not_found`.
+5. No contiguous genomic hit for a candidate involving added CCA, histidyl −1
+   G, or a splice junction → `ambiguous`, because absence is not evidence of
+   exclusivity.
 
-```bash
-pip install -r requirements.txt
-```
-
-Content of `requirements.txt`:
-```text
-biopython>=1.80
-pandas>=1.3
-# (Optional: argparse and collections are built-in with Python ≥ 3.6)
-```
-
----
-
-## Genome Input
-- Use **Ensembl reference genomes** for consistent chromosome naming (e.g., `1, 2, 3, ..., X, Y, MT`).
-- FASTA files **must be decompressed** before running (`.fa` and not `.fa.gz`)
-
-Example for mouse (GRCm39):
-```bash
-wget https://ftp.ensembl.org/pub/release-115/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna.primary_assembly.fa.gz
-
-gunzip Mus_musculus.GRCm39.dna.primary_assembly.fa.gz
-```
-
----
+`bona_fide` means genome-exclusive under this reference and mask. It does not
+establish biological function.
 
 ## Installation
-Clone the repository:
+
+Python 3.9 or newer is supported. Runtime code uses the standard library.
+
 ```bash
-git clone https://github.com/remyklein/tRNA_pipeline.git
-cd tRNA_pipeline
-pip install -r requirements.txt
+python -m pip install -e .
+python -m pip install -e ".[dev]"  # tests and lint
 ```
 
---- 
+`tRNAscan-SE` is an external dependency only for `run-scan`; absence or a
+non-zero subprocess exit is fatal.
 
-## Usage Overview
-Each stage of the pipeline can be executed independently using subcommands.
+## Inputs and species configuration
 
-| Step | Subcommand          | Description |
-|------|-------------------|-------------|
-| 1    | `run-scan`           | Identify tRNA genes using tRNAscan-SE |
-| 2    | `filter`             | Filter tRNAs for canonical chromosomes and valid anticodons |
-| 3    | `extract`            | Extract and splice tRNA sequences |
-| 4    | `modification-trna`  | Add 3′ CCA tails and 5′ extensions |
-| 5    | `generate-kmers`     | Generate k-mers from mature tRNAs |
-| 6    | `genome-search-space`| Prepare genome forward/reverse sequences |
-| 7    | `exonic-mask`        | Create exonic mask files for each strand |
-| 8    | `split-tsv`          | Split large tRF lookup tables into smaller blocks |
-| 9    | `check-exclusivity`  | Classify tRFs (bona fide, ambiguous, non-exclusive) |
-| 10   | `trf-count-table`    | Count tRF abundances from FASTQ reads |
-| 11   | `split-bona-fide`    | Separate bona fide tRFs |
-| 12   | `add-metadata`       | Add tRF metadata (ID, origin, exclusivity) |
+Genome input is FASTA. Sequence identifiers are preserved verbatim. tRNAscan-SE
+rows must contain the conventional columns:
 
----
+`Sequence, tRNA #, Begin, End, Type, Anticodon, Intron Begin, Intron End, Score`.
 
-## Pipeline Steps
+Use `--chromosomes chr1,chr2,chrX,chrM` to accept an explicit subset. If omitted,
+all chromosomes referenced by valid tRNAscan-SE rows are used; a referenced
+chromosome missing from the FASTA is an error. This supports `chr` prefixes,
+optional sex chromosomes, arbitrary contigs, and mitochondrial aliases without
+mouse-specific assumptions.
 
-### 1. Run tRNAscan-SE
-Identify all tRNA genes from the reference genome.
+FASTQ and `.gz` FASTQ are streamed. Bases are uppercased and `U` is normalized
+to `T`; `N` is accepted in reads but will not match the A/C/G/T candidate
+lookup. Other symbols, malformed records, and empty files are rejected.
+
+## Commands
+
 ```bash
-python tRF_pipeline.py run-scan Mus_musculus.GRCm39.dna.primary_assembly.fa
-```
-**Output:**
-```text
-trnascan_out.txt
-```
-This step detects all putative tRNA genes in the genome using tRNAscan-SE.
+trf-pipeline run-scan genome.fa --output trnascan_out.txt
 
-### 2. Filter tRNAscan-SE output
-Remove entries from non-canonical chromosomes and with unknown anticodons.
+trf-pipeline build-lookup genome.fa trnascan_out.txt \
+  --chromosomes chr1,chr2,chrX,chrY,chrM \
+  --min 16 --max 50 --output trf_lookup.tsv
+
+trf-pipeline quantify trf_lookup.tsv sample.fastq.gz \
+  --output sample.trf_counts.tsv
+```
+
+The compatibility launcher also works after installation:
+
 ```bash
-python tRF_pipeline.py filter trnascan_out.txt --output trnascan_out_filtered.txt
+python tRF_pipeline.py --help
 ```
-**Output:**
-```text
-trnascan_out_filtered.txt
-```
-To retain only nuclear and mitochondrial tRNAs with valid anticodons (excluding NNN).
 
-### 3. Extract and splice tRNA sequences
-Retrieve genomic sequences and remove introns.
+## Output schemas
+
+Lookup TSV:
+
+- `tRF_id`: deterministic SHA-256-derived sequence identifier;
+- `sequence`, `length`, `exclusivity`;
+- `origins_json`: all source tRNAs with amino acid, anticodon, chromosome,
+  locus, strand, mature coordinates, added-CCA overlap, histidyl −1 inclusion,
+  and splice-junction crossing.
+
+Count TSV:
+
+- `sequence`, `raw_count`;
+- `RPM_tRNAspace`: raw count / all reads assigned to lookup sequences × 10⁶;
+- `RPM_total`: raw count / all FASTQ reads × 10⁶.
+
+## Validation and tests
+
+Synthetic tests cover positive/negative extraction, both intron orientations,
+CCA, His −1 G, deterministic multi-origin fragments, masks, all exclusivity
+states, special mature-only candidates, gzip FASTQ, both RPM calculations,
+malformed inputs, and a repeated end-to-end workflow.
+
 ```bash
-python tRF_pipeline.py extract trnascan_out_filtered.txt Mus_musculus.GRCm39.dna.primary_assembly.fa --output tRNA_spliced.fa
-```
-**Output:**
-```tex
-tRNA_spliced.fa
-```
-Generates clean, intron-free tRNA sequences for further analysis.
-
-### 4. Add CCA tails and 5' extensions
-Append "CCA" at the 3' end if missing, and generate 5' N-extended versions (A, T, C, G).
-```bash
-python tRF_pipeline.py modification-trna tRNA_spliced.fa --output tRNA_all_mature.fa
-```
-**Output:**
-```text
-tRNA_all_mature.fa
-```
-Simulates mature tRNAs and allows detection of fragments originating from the first nucleotide position.
-
-### 5. Generate k-mers
-Produce all possible fragments (k-mers) of length 16 - 50 nt.
-```bash
-python tRF_pipeline.py generate-kmers tRNA_all_mature.fa --prefix trf_lookup --min 16 --max 50
-```
-**Output:**
-```text
-trf_lookup_16_50.fa
-trf_lookup_16_50.tsv
-```
-This defines the full search space of possible tRNA-derived fragments (tRF candidates).
-
-### 6. Create genome search space
-Concatenate each chromosome's forward and reverse complement strands.
-```bash
-python tRF_pipeline.py genome-search-space Mus_musculus.GRCm39.dna.primary_assembly.fa --output genome_search_space.txt
-```
-**Output:**
-```text
-genome_search_space.txt
-```
-Used to check whether tRF candidates map exclusively within annotated tRNA regions.
-
-### 7. Generate exonic masks
-Mark genomic coordinates corresponding to tRNAs (exons = 1, CCA = 2, other = 0).
-```bash
-python tRF_pipeline.py exonic-mask genome_search_space.txt trnascan_out_filtered.txt tRNA_spliced.fa
-```
-**Output directory:**
-```text
-exonic_masks/
-  ├── chr1_plus.mask
-  ├── chr1_minus.mask
-  ├── ...
-```
-These binary masks define tRNA-coding regions and are later used for exclusivity checks.
-
-### 8. Split lookup table
-Split the tRF TSV table into smaller, memory-safe blocks.
-```bash
-python tRF_pipeline.py split-tsv trf_lookup_16_50.tsv --output-dir trf_lookup_blocks --lines-per-block 1000000
-```
-**Output:**
-```text
-trf_lookup_blocks/
-  ├── block_0001.tsv
-  ├── block_0002.tsv
-  ├── ...
-```
-Prepares the tRF lookup for large-scale exclusivity testing.
-
-### 9. Check exclusivity
-Classify tRFs as **bona fide**, **ambiguous**, or **non-exclusive**.
-```bash
-python tRF_pipeline.py check-exclusivity Mus_musculus.GRCm39.dna.primary_assembly.fa \
-  --block-dir trf_lookup_blocks --mask-dir exonic_masks --output exclusivity_results.tsv
-```
-**Output:**
-```text
-exclusivity_results.tsv
-```
-Ensures each tRF sequence maps uniquely within tRNA regions, following the MINTmap logic.
-
-### 10. Generate tRF count tables
-Count tRF occurrences in trimmed FASTQ reads.
-```bash
-python tRF_pipeline.py trf-count-table trf_lookup_16_50.fa sample1_trimmed.fastq sample2_trimmed.fastq --output tRF_abundance
-```
-**Output:**
-```text
-tRF_abundance/
-  ├── sample1_tRF_counts.tsv
-  ├── sample2_tRF_counts.tsv
-```
-Quantifies observed tRF fragments directly from sequencing data.
-
-### 11. Split bona fide tRFs
-Separate bona fide tRFs from ambiguous/non-exclusive ones.
-```bash
-python tRF_pipeline.py split-bona-fide exclusivity_results.tsv tRF_abundance --output-dir tRF_bona_fide
-```
-**Output:**
-```text
-tRF_bona_fide/
-  ├── sample1_bona_fide.tsv
-  ├── sample1_ambiguous_or_non_exclusive.tsv
-```
-Facilitates downstream analyses focused on unique, biologically relevant tRFs.
-
-### 12. Add metadata
-Annotate count tables with tRF ID, origins, and exclusivity.
-```bash
-python tRF_pipeline.py add-metadata exclusivity_results.tsv tRF_abundance trf_lookup_16_50.tsv --output-dir tRF_metadata
-```
-**Output:**
-```text
-tRF_metadata/
-  ├── sample1_tRF_counts_metadata.tsv
-  ├── sample2_tRF_counts_metadata.tsv
-```
-Generates final, annotated tRF quantification tables ready for statistical analysis.
-
-## Output Structure 
-```text
-tRNA_pipeline/
-├── trnascan_out.txt
-├── trnascan_out_filtered.txt
-├── tRNA_spliced.fa
-├── tRNA_all_mature.fa
-├── trf_lookup_16_50.fa
-├── trf_lookup_16_50.tsv
-├── genome_search_space.txt
-├── exonic_masks/
-├── trf_lookup_blocks/
-├── exclusivity_results.tsv
-├── tRF_abundance/
-├── tRF_bona_fide/
-└── tRF_metadata/
+pytest
+ruff check .
+ruff format --check .
+python tRF_pipeline.py --help
+pytest tests/test_pipeline.py::test_end_to_end_repeated_output_is_identical
 ```
 
----
+See [VALIDATION.md](VALIDATION.md) for the outstanding machine-readable parity
+test plan. Until that comparison is run against the official GRCh37 assets,
+this project must not be described as equivalent to MINTmap.
 
-## Notes & Recommendations
-- Use **Ensembl genomes** for consistent chromosome naming.
-- Processing all tRFs (16 - 50 nt) may be memory-intensive. The `split-tsv` step avoids memory overflow.
-- The exclusivity step (Step 9) is the most time-consuming; parallelization is recommended for large genomes.
-- This pipeline was tested for _Mus musculus_ (GRCm39) but can be adapted to other species with minor changes.
+## Performance
 
----
+Candidates are grouped by length and each genomic window is examined once for
+that length, avoiding a complete genome scan for every candidate. This is
+deterministic and straightforward to test, but a production mammalian lookup
+may still benefit from a compiled multi-pattern index. Masks use one byte per
+base per strand, which favors clarity over minimum memory use.
 
-## Citation
-If you use this pipeline, please cite:
->Loher, P., Telonis, A. G., & Rigoutsos, I. (2017). _MINTmap: fast and exhaustive profiling of
->nuclear and mitochondrial tRNA fragments from short RNA-seq data._ Scientific Reports, 7, 41184.
->[https://doi.org/10.1038/srep41184](https://doi.org/10.1038/srep41184).
+## Limitations and compatibility
 
->Klein, R. (2025). _tRNA_pipeline: a Python implementation of the MINTmap concept for tRF discovery
->and quantification._ GitHub: [https://github.com/RemyKlein/tRNA_pipeline](https://github.com/RemyKlein/tRNA_pipeline) 
+- The old 12-stage CLI and unlabeled genome-search-space/mask intermediates were
+  removed because they encoded unsafe ordering and coordinate assumptions.
+- Structural categories and MINTplates identifiers are not yet generated.
+- tRNAscan-SE format variants beyond the documented text table need explicit
+  adapters.
+- Color-space reads are unsupported.
+- Direct MINTmap lookup/output parity remains untested.
+
+The original MINTmap code and lookup are GPL-3.0. This repository retains its
+MIT license because this is an independent implementation based on the
+published method and does not copy MINTmap source. Copying or distributing
+official MINTmap code or lookup assets may impose GPL-3.0 obligations.
+
+## Primary references
+
+- Loher P, Telonis AG, Rigoutsos I. *MINTmap: fast and exhaustive profiling of
+  nuclear and mitochondrial tRNA fragments from short RNA-seq data.* Scientific
+  Reports 7, 41184 (2017). https://doi.org/10.1038/srep41184
+- Official MINTmap 1.0 source and documentation:
+  https://github.com/TJU-CMC-Org/MINTmap/
